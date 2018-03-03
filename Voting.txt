@@ -1,0 +1,175 @@
+pragma solidity ^0.4.18;
+
+//интерфейс токена
+interface ChangeableToken{
+   function Stop();
+   function Start();
+   function changeSymbol(string name);
+   function balanceOf(address user) returns (uint256);   
+}
+
+contract DAOContract{
+    //переменная для хранения токена
+    ChangeableToken public token;
+    //минимальное число голосов 
+    uint8 public minVotes;
+    //переменная для предложенного названия
+    string public proposalName;
+    //переменная для хранения состояния голосования
+    bool public voteActive = false;
+    //структура для голосов 
+    struct Votes{
+       int current;
+       uint numberOfVotes;
+    }
+    //переменная для структуры голосов
+     Votes public election;
+    //функция инициализации (принимает адрес токена)
+     function DAOContract (ChangeableToken  _token) {
+        token = _token;
+  }
+    //функция для предложения нового символа
+    function newName(string _proposalName) public {  
+    //проверяем, что голосование не идет
+     require(!voteActive);
+     proposalName = _proposalName;
+     voteActive = true;
+      token.Stop(); 
+} 
+      
+  // функция для голосования
+   function vote(bool _vote) public{
+     require(voteActive);
+     if (_vote){
+          election.current += int(token.balanceOf(msg.sender));
+      }
+      else {
+        election.current -= int(token.balanceOf(msg.sender));
+      }
+      election.numberOfVotes += uint(token.balanceOf(msg.sender));
+   }
+
+    // Функция для смены названия токена
+    function changeSymbol() public {
+       require(voteActive);
+       require(election.numberOfVotes >= minVotes);
+       //логика для смены символа
+       if(election.current > 0){
+        token.changeSymbol(proposalName);
+      } 
+      //Обнуляем переменные голосования
+      election.current = 0;
+      election.numberOfVotes = 0;
+      voteActive = false;
+
+       //возобновляем работу токена
+      token.Start(); 
+    }
+}
+
+contract OwnableWithDAO{
+
+ address public owner;
+ address public daoContract;
+ 
+ function OwnableWithDAO(){
+  owner = msg.sender;
+  }
+
+ modifier onlyOwner(){
+  require(msg.sender == owner);
+  _;
+  }
+
+ modifier onlyDAO(){
+  require(msg.sender == daoContract);
+  _;
+  } 
+ //функция для замены владельца
+ function transferOwnership(address _newOwner) onlyOwner public{
+  require(_newOwner != address(0));
+  owner = _newOwner;
+   }
+ //функция для установки/замены контракта DAO
+ function setDAOContract(address _newDAO) onlyOwner public{
+    daoContract = _newDAO;
+ } 
+}
+
+ contract Stoppable is OwnableWithDAO {
+    bool public stopped;
+    modifier stoppable{
+      require(!stopped);
+     _;
+  }
+    function stop() onlyDAO{
+       stopped = true;
+    }
+   function start() onlyDAO{
+       stopped = false;
+    }
+ }
+
+contract DAOToken is Stoppable{
+    
+     string public name;
+     string public symbol;
+     uint8 public decimals;
+   	
+     uint256 public totalSupply;
+
+    mapping (address => uint256) public balanceOf;
+    mapping (address => mapping(address => uint256)) public allowance;
+    event Transfer(address _from, address _to, uint256 _value);
+    event Approval(address _from, address _to, uint256 _value);
+   
+  function DAOToken(){
+      
+    decimals = 0;
+    totalSupply = 10*(10** uint256(decimals));
+    balanceOf[msg.sender] = totalSupply;
+    name = "DAOCoin";
+    symbol = "DAO";
+   }  
+
+  //внутренняя функция для перевода токенов
+ function _transfer (address _from, address _to, uint256 _value) stoppable internal {
+   require(_to != 0x0);
+   require(balanceOf[_from] >= _value);
+   require(balanceOf[_to] + _value >= _value);
+ 
+    balanceOf[_to] += _value;
+    balanceOf[_from] -= _value;
+   
+    Transfer(_from,_to,_value);  
+   }
+ 
+    // Функция для перевода токенов
+    function transfer(address _to, uint256 _value) public {
+        _transfer(msg.sender, _to, _value);
+        // Вызов внутренней функции перевода
+    }
+
+    // Функция для перевода "одобренных" токенов
+    function transferFrom(address _from, address _to, uint256 _value) public {
+        // Проверка, что токены были выделены аккаунтом _from для аккаунта _to
+        require(_value <= allowance[_from][_to]);
+        allowance[_from][_to] -= _value;
+        // Отправка токенов
+        _transfer(_from, _to, _value);
+    }
+
+    // Функция для "одобрения" перевода токенов
+    function approve(address _to, uint256 _value) public {
+        allowance[msg.sender][_to] = _value;
+        Approval(msg.sender, _to, _value);
+        // Вызов эвента для логгирования события одобрения перевода токенов
+    }
+
+    // Функция для смены названия токена
+    function changeSymbol(string _symbol) onlyDAO public {
+        symbol = _symbol;
+    }
+ }
+
+
